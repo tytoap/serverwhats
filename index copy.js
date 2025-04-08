@@ -21,37 +21,50 @@ client.on('ready', () => {
 // Carregar configurações
 let config = JSON.parse(fs.readFileSync('config.json'));
 
-// Escutando todas as mensagens (recebidas e enviadas)
-client.on('message_create', async message => {
-    console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
+// Escutando todas as mensagens
+client.on('message_create', async (message) => {
+    const { from, body } = message;
+    console.log(`📩 Mensagem recebida de ${from}: ${body}`);
 
-    // Logando todas as mensagens (independente de ser enviada ou recebida)
-    fs.appendFileSync('logs.txt', `${new Date().toISOString()} - ${message.from}: ${message.body}\n`);
+    fs.appendFileSync('logs.txt', `${new Date().toISOString()} - ${from}: ${body}\n`);
 
-    // Verifica se a mensagem começa com '!', apenas respondendo a essas
-    if (message.body.startsWith('!')) {
-        // Chamada para a OpenAI para gerar uma resposta completa
-        const response = await openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: [
-                { role: 'system', content: 'Você é um assistente virtual que responde a mensagens de WhatsApp. Responda de maneira educada e profissional.' },
-                { role: 'user', content: message.body }
-            ]
-        });
+    if (body.startsWith('!')) {
+        try {
+            console.log('➡️ Enviando para API Flask:', {
+                mensagem: body,
+                usuario_id: from
+            });
 
-        // Resposta gerada pela IA
-        const aiReply = response.choices[0].message.content;
+            const response = await axios.post('http://127.0.0.1:5000/mensagem', {
+                mensagem: body,
+                usuario_id: from
+            },{
+                proxy: false
+            });
 
-        // Enviar a resposta para o WhatsApp
-        await client.sendMessage(message.from, aiReply);
+            console.log('✅ Resposta da API:', response.data);
 
-        // Log da mensagem enviada
-        console.log(`Mensagem enviada para ${message.from}: ${aiReply}`);
-        fs.appendFileSync('logs.txt', `${new Date().toISOString()} - ENVIADA para ${message.from}: ${aiReply}\n`);
+            const aiReply = response.data.resposta;
+
+            await client.sendMessage(from, aiReply);
+
+            console.log(`📤 Mensagem enviada para ${from}: ${aiReply}`);
+            fs.appendFileSync('logs.txt', `${new Date().toISOString()} - ENVIADA para ${from}: ${aiReply}\n`);
+        } catch (error) {
+            console.error('❌ Erro ao se comunicar com a API:', error.message);
+
+            if (error.response) {
+                console.error('⚠️ Resposta com erro da API:', error.response.data);
+            } else if (error.request) {
+                console.error('⚠️ Nenhuma resposta da API. Erro de request:', error.request);
+            }
+
+            await client.sendMessage(from, 'Desculpe, ocorreu um erro ao tentar gerar uma resposta.');
+        }
     } else {
-        // Para mensagens que não começam com '!', o bot apenas loga
-        console.log("Mensagem ignorada (não começa com '!')", message.body);
+        console.log("ℹ️ Mensagem ignorada (não começa com '!'):", body);
     }
 });
+
 
 client.initialize();
